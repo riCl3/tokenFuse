@@ -26,6 +26,7 @@ class Settings(BaseSettings):
 
     default_monthly_budget_usd: float = 50.0
     budget_warn_pct: float = 0.8
+    budget_window_seconds: int = 3600
     fallback_model: str = ""
 
 
