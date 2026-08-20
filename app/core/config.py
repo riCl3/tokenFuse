@@ -25,7 +25,14 @@ class Settings(BaseSettings):
     provider_timeout_seconds: float = 120.0
 
     telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
     alert_webhook_url: str = ""
+
+    alert_recent_window_seconds: int = 300
+    alert_spike_multiplier: float = 5.0
+    alert_min_spend_usd: float = 0.5
+    alert_cooldown_seconds: int = 900
+    alert_check_interval_seconds: int = 60
 
     default_monthly_budget_usd: float = 50.0
     budget_warn_pct: float = 0.8

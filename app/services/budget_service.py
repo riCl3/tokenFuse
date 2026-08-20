@@ -38,7 +38,7 @@ _record_script = redis.register_script(_LUA_RECORD)
 _window_total_script = redis.register_script(_LUA_WINDOW_TOTAL)
 
 
-def _window_key(project_id: int) -> str:
+def window_key(project_id: int) -> str:
     return f"{KEY_PREFIX}:{project_id}"
 
 
@@ -65,7 +65,7 @@ async def record_usage(
     weight = usd_to_units(cost_usd)
     member = f"evt-{_now_ms()}-{secrets.token_hex(4)}"
     await _record_script(
-        keys=[_window_key(project_id)],
+        keys=[window_key(project_id)],
         args=[_now_ms(), window_seconds * 1000, member, weight],
     )
 
@@ -87,7 +87,7 @@ async def check_budget(
         window_seconds = settings.budget_window_seconds
     used = int(
         await _window_total_script(
-            keys=[_window_key(project_id)],
+            keys=[window_key(project_id)],
             args=[_now_ms(), window_seconds * 1000],
         )
     )

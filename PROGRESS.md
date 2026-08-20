@@ -104,9 +104,31 @@
     chunk was discarded before it arrived.
   - Live-verified: normal stream forwards all 9 events + records 42,500 units;
     client killed mid-stream still records the full 42,500 units.
+- **Phase 8 — Burn-rate spike alerts**
+  - `app/services/alert_service.py`: budget-baseline spike detection
+    (recent-window spend rate vs project's budget-derived rate, multiplier +
+    absolute floor), Redis SET NX EX per-project cooldown, Telegram + webhook
+    senders (each no-op if unconfigured -> testable without keys), and a
+    `create_scheduler()` helper returning an APScheduler AsyncIOScheduler with
+    the interval job (max_instances=1, coalesce=True).
+  - Detection: recent spend from `budget:<id>` sorted set (member weights),
+    baseline = `window_budget_units(monthly, 1)` micro-USD/sec.
+  - `budget_service._window_key` made public as `window_key`.
+  - Config: `telegram_chat_id`, `alert_recent_window_seconds` (300),
+    `alert_spike_multiplier` (5.0), `alert_min_spend_usd` (0.5),
+    `alert_cooldown_seconds` (900), `alert_check_interval_seconds` (60).
+  - `main.py` lifespan: creates + starts the scheduler before `yield`,
+    shuts it down (wait=False) before closing the provider client.
+  - `scripts/webhook_receiver.py`: local POST /alert endpoint (port 8300) that
+    prints alerts, for testing without Telegram.
+  - Live-verified: project w/ $70 monthly; burst of 40 gpt-4o-mock records
+    ($1.70/60s = 28,333 units/s vs 27 baseline) fired ONE webhook alert
+    (~1049x), set the cooldown key, and a second burst was suppressed.
+  - Trade-off accepted: in-process scheduler -> single uvicorn worker only;
+    add a Redis SETNX lock if scaling to multiple workers.
 
 ## What's next
-- Phase 7c: tiktoken fallback for providers that omit the usage chunk.
+- Per-project alert overrides / severity tiers; time-of-day baselines.
 - Burn-rate alerts (APScheduler + Telegram/webhook), dashboard endpoints,
   Postgres `usage_events` persistence (TODO marker already in proxy route).
 
