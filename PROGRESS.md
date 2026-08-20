@@ -127,19 +127,44 @@
   - Trade-off accepted: in-process scheduler -> single uvicorn worker only;
     add a Redis SETNX lock if scaling to multiple workers.
 
-## What's next
-- Per-project alert overrides / severity tiers; time-of-day baselines.
-- Burn-rate alerts (APScheduler + Telegram/webhook), dashboard endpoints,
-  Postgres `usage_events` persistence (TODO marker already in proxy route).
+## Phase 9 — Wrap-up: dashboard, tests, containerize, deploy
+- **Usage persistence (fills the Phase 7a TODO):** `app/services/usage_service.py`
+  writes one `UsageEvent` row per completed call — non-streaming in the route,
+  streaming in the background tap (own session, since it can outlive the
+  request). Failures are caught and logged; bookkeeping never fails a request.
+- **Dashboard endpoints** (`app/api/routes/dashboard.py` + schemas):
+  - `GET /v1/projects` — operator list: per-project totals (requests, cost,
+    tokens) from one grouped SQL query, plus live Redis window state.
+  - `GET /v1/usage/{project_id}` — totals, per-model breakdown (GROUP BY model),
+    last-24h spend, and current window state.
+  - Scoping note: any valid API key can read these (operator dashboard);
+    per-project/admin key isolation is on the roadmap.
+- **Tests** (`tests/`, `pytest.ini`): pytest-asyncio (session-scoped loop so the
+  asyncpg pool doesn't cross event loops), RespX mocks the provider (no real
+  API), real test Postgres DB (`tokenfuse_test`) + local Redis. 7 tests:
+  auth 401/401/200/403, budget-exceeded 429 (provider not called), non-streaming
+  success records Postgres row + Redis event, streaming forwards all SSE chunks
+  incl. `[DONE]` + records usage. All passing.
+- **Upstash compatibility:** `redis_eval_available` setting + pipeline fallbacks
+  in `budget_service` for record/window-total (Upstash lacks Lua/EVAL).
+- **Containerization:** `Dockerfile` (python:3.14-slim, deps-before-source for
+  layer caching, exec-form CMD) + `.dockerignore`. Image builds and boots
+  cleanly (verified).
+
+## Roadmap (stretch features scoped out of the MVP)
+- tiktoken fallback for providers that omit the usage chunk (strategy (b)).
+- Admin/operator auth for the dashboard (admin key type; per-project isolation).
+- Per-project alert overrides, severity tiers, time-of-day baselines.
+- Multi-worker safety for the alert scheduler (Redis SETNX leader lock).
+- Rate limiting per API key (not just budget caps).
+- Usage export / billing report download; caching layer for repeat prompts.
+- Alembic migration for `tokenfuse_test` (tests use create_all for now).
 
 ## Open decisions
-- Upstash Redis (deploy target) historically does NOT support Lua/EVAL scripts.
-  Options: self-host Redis on Render, or rework to `MULTI/EXEC`+`WATCH`/counter
-  approach for Upstash. Pending when we get to deployment.
+- Upstash Redis now supported via the pipeline fallback
+  (`redis_eval_available=false`). Lua path used on local Redis.
 - Window budget derived from monthly budget (hourly cap = monthly/720). Revisit
   if projects need explicit short-window caps.
-
-## Open decisions
 - Env vars: no `TOKENFUSE_` prefix (decided).
 - Model->price map lives in a code constant for now (decided); may become a table later.
 - Local Postgres: Docker container `tokenfuse-pg` (decided).

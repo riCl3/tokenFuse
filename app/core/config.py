@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     budget_warn_pct: float = 0.8
     budget_window_seconds: int = 3600
     fallback_model: str = ""
+    redis_eval_available: bool = True
 
 
 @lru_cache

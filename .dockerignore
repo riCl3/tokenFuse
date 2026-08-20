@@ -1,0 +1,12 @@
+# Keep the Docker build context small and leak-free.
+.venv
+__pycache__
+*.pyc
+.git
+.gitignore
+.env
+.pytest_cache
+tests
+scripts
+PROGRESS.md
+README.md

@@ -8,3 +8,6 @@ alembic
 redis
 httpx
 apscheduler
+pytest
+pytest-asyncio
+respx

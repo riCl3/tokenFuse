@@ -57,6 +57,39 @@ def window_budget_units(monthly_budget_usd: float, window_seconds: int) -> int:
     return int(usd_to_units(monthly_budget_usd) * window_seconds / SECONDS_PER_MONTH)
 
 
+async def _record_pipeline(
+    project_id: int, now_ms: int, window_ms: int, member: str, weight: int
+) -> None:
+    """Non-Lua record: prune + add as one pipelined batch.
+
+    Upstash Redis does not support EVAL, so when redis_eval_available is False
+    we use a pipeline instead. Slightly weaker atomicity than the Lua script
+    (two commands, not one atomic script) - acceptable for the MVP.
+    """
+    key = window_key(project_id)
+    cutoff = now_ms - window_ms
+    async with redis.pipeline() as pipe:
+        pipe.zremrangebyscore(key, 0, cutoff)
+        pipe.zadd(key, {member: now_ms})
+        await pipe.execute()
+
+
+async def _window_total_pipeline(project_id: int, now_ms: int, window_ms: int) -> int:
+    """Non-Lua window total: prune, fetch all members, sum weights in Python."""
+    key = window_key(project_id)
+    cutoff = now_ms - window_ms
+    async with redis.pipeline() as pipe:
+        pipe.zremrangebyscore(key, 0, cutoff)
+        pipe.zrange(key, 0, -1)
+        result = await pipe.execute()
+    total = 0
+    for member in result[1]:
+        sep = member.find(":")
+        if sep != -1:
+            total += int(member[sep + 1 :])
+    return total
+
+
 async def record_usage(
     project_id: int, cost_usd: float, window_seconds: int | None = None
 ) -> None:
@@ -64,10 +97,14 @@ async def record_usage(
         window_seconds = settings.budget_window_seconds
     weight = usd_to_units(cost_usd)
     member = f"evt-{_now_ms()}-{secrets.token_hex(4)}"
-    await _record_script(
-        keys=[window_key(project_id)],
-        args=[_now_ms(), window_seconds * 1000, member, weight],
-    )
+    now_ms = _now_ms()
+    if settings.redis_eval_available:
+        await _record_script(
+            keys=[window_key(project_id)],
+            args=[now_ms, window_seconds * 1000, member, weight],
+        )
+    else:
+        await _record_pipeline(project_id, now_ms, window_seconds * 1000, member, weight)
 
 
 @dataclass
@@ -85,12 +122,17 @@ async def check_budget(
 ) -> BudgetStatus:
     if window_seconds is None:
         window_seconds = settings.budget_window_seconds
-    used = int(
-        await _window_total_script(
-            keys=[window_key(project_id)],
-            args=[_now_ms(), window_seconds * 1000],
+    if settings.redis_eval_available:
+        used = int(
+            await _window_total_script(
+                keys=[window_key(project_id)],
+                args=[_now_ms(), window_seconds * 1000],
+            )
         )
-    )
+    else:
+        used = await _window_total_pipeline(
+            project_id, _now_ms(), window_seconds * 1000
+        )
 
     status = "ok"
     if used >= budget_units:

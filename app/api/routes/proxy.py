@@ -1,18 +1,24 @@
 import asyncio
 import json
+import logging
 from collections.abc import AsyncGenerator
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import JSONResponse, StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, get_current_project
 from app.core.config import get_settings
 from app.core.pricing import estimate_cost_usd
+from app.db.base import async_session_factory
+from app.db.deps import get_db
 from app.schemas.proxy import ChatCompletionRequest
-from app.services import budget_service, provider_client
+from app.services import budget_service, provider_client, usage_service
 
 settings = get_settings()
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/chat", tags=["proxy"])
 
@@ -33,6 +39,7 @@ def _track(task: asyncio.Task) -> None:
 async def chat_completions(
     payload: ChatCompletionRequest,
     auth: AuthContext = Depends(get_current_project),
+    db: AsyncSession = Depends(get_db),
 ) -> Response:
     budget_units = budget_service.window_budget_units(
         float(auth.project.monthly_budget_usd), settings.budget_window_seconds
@@ -86,9 +93,52 @@ async def chat_completions(
             payload.model, result.usage.prompt_tokens, result.usage.completion_tokens
         )
         await budget_service.record_usage(auth.project.id, cost)
-        # TODO(Phase 8): persist a UsageEvent row to Postgres for the dashboard.
+        await _persist_usage(
+            db,
+            auth=auth,
+            provider=payload.provider,
+            model=payload.model,
+            prompt_tokens=result.usage.prompt_tokens,
+            completion_tokens=result.usage.completion_tokens,
+            total_tokens=result.usage.total_tokens,
+            cost=cost,
+            request_id=body.get("request_id"),
+            streamed=False,
+        )
 
     return JSONResponse(content=result.data, headers=response_headers)
+
+
+async def _persist_usage(
+    db: AsyncSession,
+    *,
+    auth: AuthContext,
+    provider: str,
+    model: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    total_tokens: int,
+    cost: float,
+    request_id: str | None,
+    streamed: bool,
+) -> None:
+    try:
+        await usage_service.persist_usage_event(
+            db,
+            project_id=auth.project.id,
+            api_key_id=auth.api_key.id,
+            provider=provider,
+            model=model,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            cost_usd=cost,
+            request_id=request_id,
+            streamed=streamed,
+        )
+    except Exception:
+        # Bookkeeping must never fail the LLM request that already succeeded.
+        logger.exception("failed to persist usage event for project %s", auth.project.id)
 
 
 def _parse_usage_line(line: bytes) -> dict | None:
@@ -145,6 +195,21 @@ async def _tap_stream(
                 body["model"], usage["prompt_tokens"], usage["completion_tokens"]
             )
             await budget_service.record_usage(auth.project.id, cost)
+            # The tap may outlive the request (client disconnect), so it opens
+            # its own DB session instead of reusing the request-scoped one.
+            async with async_session_factory() as session:
+                await _persist_usage(
+                    session,
+                    auth=auth,
+                    provider=provider,
+                    model=body["model"],
+                    prompt_tokens=usage["prompt_tokens"],
+                    completion_tokens=usage["completion_tokens"],
+                    total_tokens=usage["total_tokens"],
+                    cost=cost,
+                    request_id=body.get("request_id"),
+                    streamed=True,
+                )
 
 
 async def _stream_proxy(
