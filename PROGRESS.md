@@ -65,9 +65,50 @@
   - Redis 7 Docker container `tokenfuse-redis` on localhost:6379.
   - `budget_window_seconds` setting added (default 3600).
 
+- **Phase 7a — Non-streaming proxy**
+  - `budget_service` refactored to micro-USD units (USD * 1e6) — sub-cent LLM
+    costs no longer round to zero. Demo script updated to match.
+  - `app/core/pricing.py`: `MODEL_PRICING` map (USD per 1M tokens) +
+    `estimate_cost_usd`. Unknown model -> $0 (flag for later).
+  - `app/services/provider_client.py`: shared `httpx.AsyncClient` (pooled, closed on
+    shutdown), `forward_chat_completion` -> `CompletionResult(data, usage)`; skips
+    `Authorization` header when the provider key is empty (fixes `LocalProtocolError`
+    on the trailing-space header). `close()` wired into lifespan.
+  - `app/schemas/proxy.py` + `app/api/routes/proxy.py`: `POST /v1/chat/completions` —
+    auth guard -> budget check (429 structured when exceeded, `X-TokenFuse-Warning`
+    at warn) -> forward -> record usage AFTER success. Provider errors -> 502.
+  - `scripts/mock_provider.py`: fake OpenAI provider (fixed 8k-token usage) for
+    testing without real keys.
+  - Live-verified end to end: project w/ $70 monthly (hourly window budget
+    97,222 units) -> req1 ok, req2 ok, req3 warn header, req4 429; Redis window
+    showed 3 x 42,500-unit events.
+- **Phase 7b — SSE streaming proxy**
+  - `provider_client.stream_chat_completion`: httpx `client.stream` +
+    `aiter_bytes()` yields upstream SSE bytes without buffering.
+  - `scripts/mock_provider.py`: mock now streams word-by-word SSE chunks
+    (200ms pause), a finish chunk, a usage chunk, and `[DONE]`.
+  - Route: dispatches on `stream: true`, injects
+    `stream_options: {"include_usage": true}`, returns `StreamingResponse`.
+    Return type changed to `Response` (union of two response classes is not a
+    valid Pydantic response field).
+  - Usage for streams: read the final usage chunk (strategy (a)). tiktoken
+    fallback (b) deferred; likely blocked on Python 3.14 wheels.
+  - Disconnect handling: upstream read moved into an INDEPENDENT background
+    task (`_tap_stream`) feeding an `asyncio.Queue`; the generator only
+    relays. On client disconnect Starlette cancels the generator, but the
+    tracked tap (module-level `_active_taps` strong-ref set; the event loop
+    only keeps weak refs) keeps draining, captures the usage chunk, and
+    commits the spend. `asyncio.shield` used in the generator finally.
+    First attempt (shield only around a commit inside the generator) FAILED:
+    cancellation propagates into the upstream read and closes it, so the usage
+    chunk was discarded before it arrived.
+  - Live-verified: normal stream forwards all 9 events + records 42,500 units;
+    client killed mid-stream still records the full 42,500 units.
+
 ## What's next
-- Reverse proxy + SSE aggregation (httpx forwarding to providers).
-- Burn-rate alerts (APScheduler + Telegram/webhook), dashboard endpoints.
+- Phase 7c: tiktoken fallback for providers that omit the usage chunk.
+- Burn-rate alerts (APScheduler + Telegram/webhook), dashboard endpoints,
+  Postgres `usage_events` persistence (TODO marker already in proxy route).
 
 ## Open decisions
 - Upstash Redis (deploy target) historically does NOT support Lua/EVAL scripts.

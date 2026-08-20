@@ -12,7 +12,7 @@ SECONDS_PER_MONTH = 30 * 24 * 3600
 
 _LUA_RECORD = """
 -- KEYS[1] = window key, ARGV[1] = now_ms, ARGV[2] = window_ms
--- ARGV[3] = event id, ARGV[4] = weight (cents)
+-- ARGV[3] = event id, ARGV[4] = weight (micro-USD)
 local cutoff = tonumber(ARGV[1]) - tonumber(ARGV[2])
 redis.call('ZREMRANGEBYSCORE', KEYS[1], 0, cutoff)
 redis.call('ZADD', KEYS[1], ARGV[1], ARGV[3] .. ':' .. ARGV[4])
@@ -46,12 +46,15 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
-def usd_to_cents(usd: float) -> int:
-    return int(round(usd * 100))
+MICRO_USD_PER_USD = 1_000_000
 
 
-def window_budget_cents(monthly_budget_usd: float, window_seconds: int) -> int:
-    return int(usd_to_cents(monthly_budget_usd) * window_seconds / SECONDS_PER_MONTH)
+def usd_to_units(usd: float) -> int:
+    return int(round(usd * MICRO_USD_PER_USD))
+
+
+def window_budget_units(monthly_budget_usd: float, window_seconds: int) -> int:
+    return int(usd_to_units(monthly_budget_usd) * window_seconds / SECONDS_PER_MONTH)
 
 
 async def record_usage(
@@ -59,7 +62,7 @@ async def record_usage(
 ) -> None:
     if window_seconds is None:
         window_seconds = settings.budget_window_seconds
-    weight = usd_to_cents(cost_usd)
+    weight = usd_to_units(cost_usd)
     member = f"evt-{_now_ms()}-{secrets.token_hex(4)}"
     await _record_script(
         keys=[_window_key(project_id)],
@@ -70,13 +73,13 @@ async def record_usage(
 @dataclass
 class BudgetStatus:
     status: str
-    used_cents: int
-    budget_cents: int
+    used_units: int
+    budget_units: int
 
 
 async def check_budget(
     project_id: int,
-    budget_cents: int,
+    budget_units: int,
     warn_pct: float,
     window_seconds: int | None = None,
 ) -> BudgetStatus:
@@ -90,9 +93,9 @@ async def check_budget(
     )
 
     status = "ok"
-    if used >= budget_cents:
+    if used >= budget_units:
         status = "exceeded"
-    elif used >= int(budget_cents * warn_pct):
+    elif used >= int(budget_units * warn_pct):
         status = "warn"
 
-    return BudgetStatus(status=status, used_cents=used, budget_cents=budget_cents)
+    return BudgetStatus(status=status, used_units=used, budget_units=budget_units)
