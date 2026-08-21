@@ -1,0 +1,67 @@
+# TokenFuse deployment stack - the whole system as one self-contained unit.
+#   docker compose up --build     build + start everything
+#   docker compose ps             see status
+#   docker compose logs -f app    follow app logs
+#   docker compose exec app alembic upgrade head
+#   docker compose down           stop (data survives - it's in volumes)
+#   docker compose down -v        stop AND delete the volumes (destructive)
+
+services:
+  app:
+    build: .
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"        # the ONLY published port - the external entry point
+    environment:
+      # Containers reach each other by compose service name, never localhost.
+      DATABASE_URL: postgresql+asyncpg://tokenfuse:tokenfuse@db:5432/tokenfuse
+      REDIS_URL: redis://redis:6379/0
+      # The provider also lives inside the stack, as the "mock" service.
+      OPENAI_BASE_URL: http://mock:8200/v1
+      REDIS_EVAL_AVAILABLE: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mock:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  mock:
+    # Same image as app - the mock provider is just another process role.
+    build: .
+    command: uvicorn scripts.mock_provider:app --host 0.0.0.0 --port 8200
+    # No "ports:" section - nothing outside the stack may reach it directly.
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tokenfuse
+      POSTGRES_PASSWORD: tokenfuse
+      POSTGRES_DB: tokenfuse
+    volumes:
+      - pgdata:/var/lib/postgresql/data   # named volume = data survives restarts
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tokenfuse"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
+  redisdata:

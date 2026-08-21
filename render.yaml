@@ -1,0 +1,37 @@
+# Render Blueprint - one-click deploy of TokenFuse to the free tier.
+# Push to GitHub, then: New -> Blueprint -> select this repo.
+# Render provisions a Docker web service and prompts for the secret values
+# (marked sync: false) in the dashboard before the first deploy.
+
+services:
+  - type: web
+    name: tokenfuse
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      # Upstash Redis has no Lua/EVAL support, so the app must use the
+      # pipeline fallback. Without this flag budget checks would fail on Upstash.
+      - key: REDIS_EVAL_AVAILABLE
+        value: "false"
+
+      # ---- Secret values (filled in the Render dashboard) ----
+      # Neon Postgres, e.g.
+      #   postgresql+asyncpg://user:pass@ep-xxx.region.aws.neon.tech/neondb?ssl=require
+      - key: DATABASE_URL
+        sync: false
+      # Upstash Redis (TLS), e.g. rediss://default:<token>@<host>:6379
+      - key: REDIS_URL
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      # Burn-rate alert delivery (all optional - alerts are log-only without them)
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: ALERT_WEBHOOK_URL
+        sync: false
