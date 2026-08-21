@@ -30,6 +30,8 @@ services:
         sync: false
       - key: GROK_API_KEY
         sync: false
+      - key: GROQ_API_KEY
+        sync: false
       # Burn-rate alert delivery (all optional - alerts are log-only without them)
       - key: TELEGRAM_BOT_TOKEN
         sync: false

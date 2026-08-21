@@ -15,6 +15,9 @@ MODEL_PRICING: dict[str, dict[str, float]] = {
     "grok-4.20-0309-reasoning": {"input": 1.25, "output": 2.50},
     "grok-4.20-0309-non-reasoning": {"input": 1.25, "output": 2.50},
     "grok-build-0.1": {"input": 1.00, "output": 2.00},
+    # Groq
+    "openai/gpt-oss-120b": {"input": 0.15, "output": 0.60},
+    "openai/gpt-oss-20b": {"input": 0.075, "output": 0.30},
 }
 
 
