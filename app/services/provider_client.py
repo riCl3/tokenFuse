@@ -10,6 +10,7 @@ settings = get_settings()
 _PROVIDERS = {
     "openai": (settings.openai_base_url, settings.openai_api_key),
     "openrouter": (settings.openrouter_base_url, settings.openrouter_api_key),
+    "grok": (settings.grok_base_url, settings.grok_api_key),
 }
 
 client = httpx.AsyncClient(timeout=settings.provider_timeout_seconds)
