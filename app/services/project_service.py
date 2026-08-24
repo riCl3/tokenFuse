@@ -13,6 +13,10 @@ settings = get_settings()
 async def create_project(
     session: AsyncSession, data: ProjectCreate
 ) -> tuple[Project, str]:
+    # Validate custom_pricing if provided
+    custom = getattr(data, "custom_pricing", None)
+    if custom is not None and len(custom) == 0:
+        custom = None
     project = Project(
         name=data.name,
         monthly_budget_usd=(
@@ -24,6 +28,7 @@ async def create_project(
             data.warn_pct if data.warn_pct is not None else settings.budget_warn_pct
         ),
         fallback_model=data.fallback_model,
+        custom_pricing=custom,
     )
     session.add(project)
 
@@ -54,3 +59,32 @@ async def get_project(session: AsyncSession, project_id: int) -> Project | None:
         .options(selectinload(Project.api_keys))
     )
     return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def update_project(session: AsyncSession, project: Project, data) -> Project:
+    if data.name is not None:
+        project.name = data.name
+    if data.monthly_budget_usd is not None:
+        project.monthly_budget_usd = data.monthly_budget_usd
+    if data.warn_pct is not None:
+        project.warn_pct = data.warn_pct
+    if data.fallback_model is not None:
+        # Allow clearing with empty string
+        project.fallback_model = data.fallback_model if data.fallback_model != "" else None
+    if data.is_active is not None:
+        project.is_active = data.is_active
+    if data.custom_pricing is not None:
+        # Allow clearing with empty dict — treat as None (use global pricing)
+        if len(data.custom_pricing) == 0:
+            project.custom_pricing = None
+        else:
+            project.custom_pricing = data.custom_pricing
+    await session.commit()
+    await session.refresh(project)
+    # Re-load with api_keys for response
+    refreshed = (
+        await session.execute(
+            select(Project).where(Project.id == project.id).options(selectinload(Project.api_keys))
+        )
+    ).scalar_one()
+    return refreshed

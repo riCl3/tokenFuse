@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, get_current_project
 from app.core.config import get_settings
-from app.core.pricing import estimate_cost_usd
+from app.core.pricing import estimate_cost_usd_for_project
 from app.db.base import async_session_factory
 from app.db.deps import get_db
 from app.schemas.proxy import ChatCompletionRequest
@@ -89,8 +89,12 @@ async def chat_completions(
         )
 
     if result.usage is not None:
-        cost = estimate_cost_usd(
-            payload.model, result.usage.prompt_tokens, result.usage.completion_tokens
+        cost = await estimate_cost_usd_for_project(
+            payload.model,
+            result.usage.prompt_tokens,
+            result.usage.completion_tokens,
+            project=auth.project,
+            session=db,
         )
         await budget_service.record_usage(auth.project.id, cost)
         await _persist_usage(
@@ -191,13 +195,17 @@ async def _tap_stream(
         # spend is recorded regardless of whether the generator got this far.
         await queue.put(None)
         if usage:
-            cost = estimate_cost_usd(
-                body["model"], usage["prompt_tokens"], usage["completion_tokens"]
-            )
-            await budget_service.record_usage(auth.project.id, cost)
             # The tap may outlive the request (client disconnect), so it opens
             # its own DB session instead of reusing the request-scoped one.
             async with async_session_factory() as session:
+                cost = await estimate_cost_usd_for_project(
+                    body["model"],
+                    usage["prompt_tokens"],
+                    usage["completion_tokens"],
+                    project=auth.project,
+                    session=session,
+                )
+                await budget_service.record_usage(auth.project.id, cost)
                 await _persist_usage(
                     session,
                     auth=auth,
