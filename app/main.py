@@ -50,6 +50,17 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
+# TEMPORARY: surface 500 details for debugging (remove after)
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(Exception)
+async def debug_exception_handler(request, exc):
+    import traceback
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc), "trace": traceback.format_exc()[-1500:]},
+    )
+
 # CORS origins come from env CORS_ORIGINS (comma-separated). Regex covers all Vercel preview/prod domains.
 _cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
 
