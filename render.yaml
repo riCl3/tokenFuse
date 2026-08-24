@@ -20,7 +20,7 @@ services:
       - key: CORS_ORIGINS
         value: "http://localhost:3000,http://localhost:3001,https://token-fuse.vercel.app"
       - key: JWT_SECRET
-        value: "change-me-generate-with-openssl-rand-hex-32"
+        sync: false
       - key: JWT_EXPIRES_MINUTES
         value: "1440"
 
