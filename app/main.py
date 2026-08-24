@@ -72,3 +72,24 @@ app.include_router(dashboard.router)
 @app.get("/health")
 async def health():
     return {"app": settings.app_name, "environment": settings.environment}
+
+
+@app.get("/debug/db-check")
+async def debug_db_check():
+    """TEMPORARY diagnostic — remove after debugging. Checks projects table schema."""
+    from app.db.base import engine
+    from sqlalchemy import text
+    async with engine.connect() as conn:
+        cols = (
+            await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='projects' ORDER BY ordinal_position"
+            ))
+        ).scalars().all()
+        tables = (
+            await conn.execute(text(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema='public' ORDER BY table_name"
+            ))
+        ).scalars().all()
+        return {"projects_columns": cols, "tables": tables}
