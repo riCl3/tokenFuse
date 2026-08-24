@@ -17,6 +17,12 @@ services:
       # pipeline fallback. Without this flag budget checks would fail on Upstash.
       - key: REDIS_EVAL_AVAILABLE
         value: "false"
+      - key: CORS_ORIGINS
+        value: "http://localhost:3000,http://localhost:3001,https://tokenfuse.vercel.app"
+      - key: JWT_SECRET
+        value: "change-me-generate-with-openssl-rand-hex-32"
+      - key: JWT_EXPIRES_MINUTES
+        value: "1440"
 
       # ---- Secret values (filled in the Render dashboard) ----
       # Neon Postgres, e.g.
