@@ -20,9 +20,12 @@ async def lifespan(app: FastAPI):
     from sqlalchemy import text
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Add owner_id to projects if missing (safe for existing DBs)
+        # Idempotent column backfills for pre-existing databases
         await conn.execute(text(
             "ALTER TABLE projects ADD COLUMN IF NOT EXISTS owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE projects ADD COLUMN IF NOT EXISTS custom_pricing JSON"
         ))
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_projects_owner_id ON projects (owner_id)"
