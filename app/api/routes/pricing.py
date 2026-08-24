@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AuthContext, get_current_project
+from app.api.deps import get_current_user_dep
 from app.db.deps import get_db
-from app.db.models import ModelPricing
+from app.db.models import ModelPricing, User
 from app.schemas.pricing import PricingCreate, PricingResponse, PricingUpdate
 
 router = APIRouter(prefix="/v1/pricing", tags=["pricing"])
@@ -12,7 +12,7 @@ router = APIRouter(prefix="/v1/pricing", tags=["pricing"])
 
 @router.get("", response_model=list[PricingResponse])
 async def list_pricing(
-    auth: AuthContext = Depends(get_current_project),
+    user: User = Depends(get_current_user_dep),
     db: AsyncSession = Depends(get_db),
 ) -> list[ModelPricing]:
     rows = (await db.execute(select(ModelPricing).order_by(ModelPricing.model))).scalars().all()
@@ -22,7 +22,7 @@ async def list_pricing(
 @router.post("", response_model=PricingResponse, status_code=status.HTTP_201_CREATED)
 async def create_pricing(
     payload: PricingCreate,
-    auth: AuthContext = Depends(get_current_project),
+    user: User = Depends(get_current_user_dep),
     db: AsyncSession = Depends(get_db),
 ) -> ModelPricing:
     existing = (
@@ -45,14 +45,13 @@ async def create_pricing(
 async def upsert_pricing(
     model: str,
     payload: PricingUpdate,
-    auth: AuthContext = Depends(get_current_project),
+    user: User = Depends(get_current_user_dep),
     db: AsyncSession = Depends(get_db),
 ) -> ModelPricing:
     row = (
         await db.execute(select(ModelPricing).where(ModelPricing.model == model))
     ).scalar_one_or_none()
     if not row:
-        # Upsert: create if missing when at least one price supplied
         if payload.input_price is None or payload.output_price is None:
             raise HTTPException(status_code=404, detail=f"No pricing for model '{model}'")
         row = ModelPricing(model=model, input_price=payload.input_price, output_price=payload.output_price)
@@ -74,7 +73,7 @@ async def upsert_pricing(
 @router.delete("/{model:path}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_pricing(
     model: str,
-    auth: AuthContext = Depends(get_current_project),
+    user: User = Depends(get_current_user_dep),
     db: AsyncSession = Depends(get_db),
 ):
     row = (

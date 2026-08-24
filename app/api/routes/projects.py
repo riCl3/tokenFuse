@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from app.api.deps import AuthContext, get_current_project, get_current_user_dep
+from app.api.deps import AuthContext, get_current_user_or_project
 from app.db.deps import get_db
-from app.db.models import User
+from app.db.models import Project
 from app.schemas.pricing import ProjectUpdate
 from app.schemas.project import (
     ProjectCreate,
@@ -22,9 +24,12 @@ router = APIRouter(prefix="/v1/projects", tags=["projects"])
 )
 async def create_project(
     payload: ProjectCreate,
-    user: User = Depends(get_current_user_dep),
+    auth_tuple: tuple = Depends(get_current_user_or_project),
     db: AsyncSession = Depends(get_db),
 ) -> ProjectCreatedResponse:
+    user, _ = auth_tuple
+    if user is None:
+        raise HTTPException(status_code=401, detail="JWT token required to create projects")
     project, raw_key = await project_service.create_project(db, payload, owner_id=user.id)
     return ProjectCreatedResponse(
         project=ProjectResponse.model_validate(project),
@@ -35,29 +40,42 @@ async def create_project(
 @router.get("/{project_id}", response_model=ProjectResponse)
 async def get_project(
     project_id: int,
-    auth: AuthContext = Depends(get_current_project),
+    auth_tuple: tuple = Depends(get_current_user_or_project),
+    db: AsyncSession = Depends(get_db),
 ) -> ProjectResponse:
-    if auth.project.id != project_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized for this project",
-        )
-    return auth.project
+    user, auth_ctx = auth_tuple
+    stmt = select(Project).where(Project.id == project_id).options(selectinload(Project.api_keys))
+    project = (await db.execute(stmt)).scalar_one_or_none()
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if user is not None:
+        if project.owner_id != user.id:
+            raise HTTPException(status_code=403, detail="Not authorized for this project")
+    elif auth_ctx is not None:
+        if auth_ctx.project.id != project_id:
+            raise HTTPException(status_code=403, detail="Not authorized for this project")
+    return project
 
 
 @router.patch("/{project_id}", response_model=ProjectResponse)
 async def update_project(
     project_id: int,
     payload: ProjectUpdate,
-    auth: AuthContext = Depends(get_current_project),
+    auth_tuple: tuple = Depends(get_current_user_or_project),
     db: AsyncSession = Depends(get_db),
 ) -> ProjectResponse:
-    if auth.project.id != project_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized for this project",
-        )
-    # Validate custom_pricing shape if provided
+    user, auth_ctx = auth_tuple
+    stmt = select(Project).where(Project.id == project_id).options(selectinload(Project.api_keys))
+    project = (await db.execute(stmt)).scalar_one_or_none()
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if user is not None:
+        if project.owner_id != user.id:
+            raise HTTPException(status_code=403, detail="Not authorized for this project")
+    elif auth_ctx is not None:
+        if auth_ctx.project.id != project_id:
+            raise HTTPException(status_code=403, detail="Not authorized for this project")
+
     if payload.custom_pricing is not None:
         for model, price in payload.custom_pricing.items():
             if not isinstance(price, dict) or "input" not in price or "output" not in price:
@@ -70,5 +88,5 @@ async def update_project(
             if float(price["input"]) < 0 or float(price["output"]) < 0:
                 raise HTTPException(status_code=400, detail=f"Prices must be >= 0 for '{model}'")
 
-    updated = await project_service.update_project(db, auth.project, payload)
+    updated = await project_service.update_project(db, project, payload)
     return updated

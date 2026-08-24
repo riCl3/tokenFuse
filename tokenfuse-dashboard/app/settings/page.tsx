@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   Card,
   CardContent,
@@ -23,10 +24,13 @@ import {
   updatePricing,
   deletePricing,
 } from "@/lib/api-client";
+import { useAuth } from "@/lib/auth-context";
 import type { PricingRow } from "@/lib/api-types";
 import { Key, Trash2, Check, X, Plus, DollarSign, Pencil } from "lucide-react";
 
 export default function SettingsPage() {
+  const { user, loading: authLoading } = useAuth();
+  const router = useRouter();
   const [apiKey, setApiKeyState] = useState("");
   const [saved, setSaved] = useState(false);
   const [health, setHealth] = useState<{
@@ -47,12 +51,20 @@ export default function SettingsPage() {
   const [editOutput, setEditOutput] = useState("");
 
   useEffect(() => {
+    if (!authLoading && !user) {
+      router.push("/auth/login");
+    }
+  }, [authLoading, user, router]);
+
+  useEffect(() => {
     const stored = getApiKey();
     if (stored) {
       setApiKeyState(stored);
+    }
+    if (user) {
       fetchPricing();
     }
-  }, []);
+  }, [user]);
 
   async function fetchPricing() {
     try {
@@ -221,8 +233,8 @@ export default function SettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            {!getApiKey() ? (
-              <p className="text-sm text-muted-foreground">Connect with an API key above to manage pricing.</p>
+            {!user ? (
+              <p className="text-sm text-muted-foreground">Sign in to manage pricing.</p>
             ) : (
               <>
                 {pricingError && (

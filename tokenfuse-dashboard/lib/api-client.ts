@@ -64,7 +64,12 @@ async function request<T>(
 
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`API ${res.status}: ${body}`);
+    let detail = `Request failed (${res.status})`;
+    try {
+      const parsed = JSON.parse(body);
+      if (parsed.detail) detail = parsed.detail;
+    } catch { /* keep default */ }
+    throw new Error(detail);
   }
 
   return res.json() as Promise<T>;
@@ -140,15 +145,7 @@ export async function updatePricing(model: string, data: import("./api-types").P
 }
 
 export async function deletePricing(model: string): Promise<void> {
-  const token = getAuthToken();
-  const headers: Record<string, string> = {
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-  const res = await fetch(`${API_BASE}/v1/pricing/${encodeURIComponent(model)}`, { method: "DELETE", headers });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`API ${res.status}: ${body}`);
-  }
+  await request(`/v1/pricing/${encodeURIComponent(model)}`, { method: "DELETE" });
 }
 
 // --- Project update ---

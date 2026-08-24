@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AuthContext, get_current_project, get_current_user_dep
+from app.api.deps import get_current_user_dep
 from app.core.config import get_settings
 from app.db.deps import get_db
 from app.db.models import Project, UsageEvent, User
@@ -85,11 +85,13 @@ async def list_projects(
 @router.get("/v1/usage/{project_id}", response_model=UsageSummary)
 async def project_usage(
     project_id: int,
-    auth: AuthContext = Depends(get_current_project),
+    user: User = Depends(get_current_user_dep),
     db: AsyncSession = Depends(get_db),
 ) -> UsageSummary:
     project = (
-        await db.execute(select(Project).where(Project.id == project_id))
+        await db.execute(
+            select(Project).where(Project.id == project_id, Project.owner_id == user.id)
+        )
     ).scalar_one_or_none()
     if project is None:
         raise HTTPException(

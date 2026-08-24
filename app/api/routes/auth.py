@@ -31,7 +31,7 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> To
     if user is None or not auth_service.verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not user.is_active:
-        raise HTTPException(status_code=403, detail="Account disabled")
+        raise HTTPException(status_code=401, detail="Invalid email or password")
     token = auth_service.create_access_token(user.id)
     return TokenResponse(access_token=token)
 

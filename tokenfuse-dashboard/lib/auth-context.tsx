@@ -5,6 +5,7 @@ import {
   getAuthToken,
   setAuthToken,
   clearAuthToken,
+  clearApiKey,
   getMe,
   login as apiLogin,
   signup as apiSignup,
@@ -61,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   function logout() {
     clearAuthToken();
+    clearApiKey();
     setUser(null);
   }
 

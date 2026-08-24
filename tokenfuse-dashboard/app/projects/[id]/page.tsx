@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Card,
@@ -16,6 +16,7 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AppShell } from "@/components/app-shell";
 import { getProject, getUsageSummary, updateProject, listPricing } from "@/lib/api-client";
+import { useAuth } from "@/lib/auth-context";
 import {
   Dialog,
   DialogContent,
@@ -59,6 +60,8 @@ import {
 
 export default function ProjectDetailPage() {
   const params = useParams();
+  const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
   const projectId = Number(params.id);
 
   const [project, setProject] = useState<ProjectResponse | null>(null);
@@ -75,6 +78,13 @@ export default function ProjectDetailPage() {
   const [editError, setEditError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!authLoading && !user) {
+      router.push("/auth/login");
+    }
+  }, [authLoading, user, router]);
+
+  useEffect(() => {
+    if (!user) return;
     async function load() {
       try {
         const [proj, usageData] = await Promise.all([
@@ -83,14 +93,17 @@ export default function ProjectDetailPage() {
         ]);
         setProject(proj);
         setUsage(usageData);
-      } catch {
-        // Error handled by parent
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "";
+        if (msg.includes("401") || msg.includes("403")) {
+          router.push("/auth/login");
+        }
       } finally {
         setLoading(false);
       }
     }
     load();
-  }, [projectId]);
+  }, [projectId, user, router]);
 
   function openEdit() {
     if (!project) return;
