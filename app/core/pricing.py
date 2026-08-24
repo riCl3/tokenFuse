@@ -20,6 +20,9 @@ MODEL_PRICING: dict[str, dict[str, float]] = {
     "openai/gpt-oss-20b": {"input": 0.075, "output": 0.30},
 }
 
+# Backwards-compat: keep sync estimator for scripts/tests where project context is N/A.
+# New code should use estimate_cost_usd_for_project.
+
 
 def estimate_cost_usd(model: str, prompt_tokens: int, completion_tokens: int) -> float:
     price = MODEL_PRICING.get(model)
@@ -29,3 +32,69 @@ def estimate_cost_usd(model: str, prompt_tokens: int, completion_tokens: int) ->
         prompt_tokens / 1_000_000 * price["input"]
         + completion_tokens / 1_000_000 * price["output"]
     )
+
+
+def _price_from_project(project, model: str) -> dict[str, float] | None:
+    """Return per-project override if present."""
+    if project is None:
+        return None
+    overrides = getattr(project, "custom_pricing", None)
+    if not overrides or not isinstance(overrides, dict):
+        return None
+    raw = overrides.get(model)
+    if not raw or not isinstance(raw, dict):
+        return None
+    try:
+        return {"input": float(raw["input"]), "output": float(raw["output"])}
+    except Exception:
+        return None
+
+
+async def estimate_cost_usd_for_project(
+    model: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    project=None,
+    session=None,
+) -> float:
+    """
+    Cost lookup order:
+      1) per-project custom_pricing (Project.custom_pricing JSON)
+      2) global ModelPricing table (if session provided, else skipped)
+      3) hardcoded MODEL_PRICING
+      4) 0.0 for unknown models
+    """
+    # 1) per-project override — no DB query needed
+    price = _price_from_project(project, model)
+    if price is not None:
+        return (
+            prompt_tokens / 1_000_000 * price["input"]
+            + completion_tokens / 1_000_000 * price["output"]
+        )
+
+    # 2) global DB table — only if we have a session
+    if session is not None:
+        try:
+            from sqlalchemy import select
+            from app.db.models import ModelPricing
+
+            row = (
+                await session.execute(
+                    select(ModelPricing).where(
+                        ModelPricing.model == model,
+                        ModelPricing.is_active.is_(True),
+                    )
+                )
+            ).scalar_one_or_none()
+            if row is not None:
+                return (
+                    prompt_tokens / 1_000_000 * float(row.input_price)
+                    + completion_tokens / 1_000_000 * float(row.output_price)
+                )
+        except Exception:
+            # If the table doesn't exist yet (tests without migration) or session is closed,
+            # fall through to hardcoded map.
+            pass
+
+    # 3) hardcoded fallback
+    return estimate_cost_usd(model, prompt_tokens, completion_tokens)

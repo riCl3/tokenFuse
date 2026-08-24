@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Numeric, String
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.config import get_settings
@@ -26,6 +26,9 @@ class Project(Base):
     )
     warn_pct: Mapped[float] = mapped_column(default=settings.budget_warn_pct)
     fallback_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Per-project pricing overrides: {"gpt-4o": {"input": 2.5, "output": 10.0}, ...}
+    # If a model is absent here, the global ModelPricing table is used, then hardcoded fallback.
+    custom_pricing: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -82,3 +85,15 @@ class UsageEvent(Base):
     __table_args__ = (
         Index("ix_usage_events_project_created", "project_id", "created_at"),
     )
+
+
+class ModelPricing(Base):
+    __tablename__ = "model_pricing"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    model: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    input_price: Mapped[Decimal] = mapped_column(Numeric(10, 4))  # USD per 1M tokens
+    output_price: Mapped[Decimal] = mapped_column(Numeric(10, 4))
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
