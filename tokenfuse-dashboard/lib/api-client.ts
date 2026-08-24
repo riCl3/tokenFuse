@@ -105,14 +105,10 @@ export async function getProject(id: number): Promise<ProjectResponse> {
 export async function createProject(
   data: ProjectCreate,
 ): Promise<ProjectCreatedResponse> {
-  // Bootstrap: POST /v1/projects is intentionally unauthenticated, so we
-  // must not send a stale/invalid Authorization header that would confuse
-  // the server logs with a spurious 401.
   return request("/v1/projects", {
     method: "POST",
     body: JSON.stringify(data),
-    skipAuth: true,
-  } as RequestInit & { skipAuth?: boolean });
+  });
 }
 
 // --- Usage ---
