@@ -53,17 +53,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
-# TEMPORARY: surface 500 details for debugging (remove after)
-from fastapi.responses import JSONResponse
-
-@app.exception_handler(Exception)
-async def debug_exception_handler(request, exc):
-    import traceback
-    return JSONResponse(
-        status_code=500,
-        content={"detail": str(exc), "trace": traceback.format_exc()[-1500:]},
-    )
-
 # CORS origins come from env CORS_ORIGINS (comma-separated). Regex covers all Vercel preview/prod domains.
 _cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
 
@@ -86,24 +75,3 @@ app.include_router(dashboard.router)
 @app.get("/health")
 async def health():
     return {"app": settings.app_name, "environment": settings.environment}
-
-
-@app.get("/debug/db-check")
-async def debug_db_check():
-    """TEMPORARY diagnostic — remove after debugging. Checks projects table schema."""
-    from app.db.base import engine
-    from sqlalchemy import text
-    async with engine.connect() as conn:
-        cols = (
-            await conn.execute(text(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_name='projects' ORDER BY ordinal_position"
-            ))
-        ).scalars().all()
-        tables = (
-            await conn.execute(text(
-                "SELECT table_name FROM information_schema.tables "
-                "WHERE table_schema='public' ORDER BY table_name"
-            ))
-        ).scalars().all()
-        return {"projects_columns": cols, "tables": tables}
