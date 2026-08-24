@@ -98,13 +98,17 @@ async def record_usage(
     weight = usd_to_units(cost_usd)
     member = f"evt-{_now_ms()}-{secrets.token_hex(4)}"
     now_ms = _now_ms()
-    if settings.redis_eval_available:
-        await _record_script(
-            keys=[window_key(project_id)],
-            args=[now_ms, window_seconds * 1000, member, weight],
-        )
-    else:
-        await _record_pipeline(project_id, now_ms, window_seconds * 1000, member, weight)
+    try:
+        if settings.redis_eval_available:
+            await _record_script(
+                keys=[window_key(project_id)],
+                args=[now_ms, window_seconds * 1000, member, weight],
+            )
+        else:
+            await _record_pipeline(project_id, now_ms, window_seconds * 1000, member, weight)
+    except Exception:
+        # Redis unavailable — budget tracking silently degrades.
+        pass
 
 
 @dataclass
@@ -122,17 +126,22 @@ async def check_budget(
 ) -> BudgetStatus:
     if window_seconds is None:
         window_seconds = settings.budget_window_seconds
-    if settings.redis_eval_available:
-        used = int(
-            await _window_total_script(
-                keys=[window_key(project_id)],
-                args=[_now_ms(), window_seconds * 1000],
+    try:
+        if settings.redis_eval_available:
+            used = int(
+                await _window_total_script(
+                    keys=[window_key(project_id)],
+                    args=[_now_ms(), window_seconds * 1000],
+                )
             )
-        )
-    else:
-        used = await _window_total_pipeline(
-            project_id, _now_ms(), window_seconds * 1000
-        )
+        else:
+            used = await _window_total_pipeline(
+                project_id, _now_ms(), window_seconds * 1000
+            )
+    except Exception:
+        # If Redis is unreachable, default to zero usage so the
+        # dashboard / proxy still works (budget checks become no-ops).
+        used = 0
 
     status = "ok"
     if used >= budget_units:
