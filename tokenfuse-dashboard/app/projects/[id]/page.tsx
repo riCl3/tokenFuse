@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AppShell } from "@/components/app-shell";
-import { getProject, getUsageSummary, updateProject, listPricing } from "@/lib/api-client";
+import { getProject, getUsageSummary, updateProject, deleteProject } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import {
   Dialog,
@@ -56,7 +56,15 @@ import {
   Pencil,
   Trash2,
   Plus,
+  AlertTriangle,
 } from "lucide-react";
+
+const PROVIDER_LABELS: Record<string, string> = {
+  openai: "OpenAI",
+  openrouter: "OpenRouter",
+  grok: "Grok (xAI)",
+  groq: "Groq",
+};
 
 export default function ProjectDetailPage() {
   const params = useParams();
@@ -74,8 +82,12 @@ export default function ProjectDetailPage() {
   const [editWarn, setEditWarn] = useState("0.8");
   const [editFallback, setEditFallback] = useState("");
   const [editOverrides, setEditOverrides] = useState<{ model: string; input: string; output: string }[]>([]);
+  const [editProviderKeys, setEditProviderKeys] = useState<Record<string, string>>({});
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [showDelete, setShowDelete] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -119,6 +131,7 @@ export default function ProjectDetailPage() {
     } else {
       setEditOverrides([]);
     }
+    setEditProviderKeys({});
     setEditError(null);
     setShowEdit(true);
   }
@@ -137,12 +150,18 @@ export default function ProjectDetailPage() {
         }
         if (Object.keys(customPricing).length === 0) customPricing = null;
       }
+      const providerKeys: Record<string, string> = {};
+      for (const k of Object.keys(PROVIDER_LABELS)) {
+        const v = editProviderKeys[k];
+        if (v && v.trim()) providerKeys[k] = v.trim();
+      }
       const updated = await updateProject(projectId, {
         name: editName.trim() || null,
         monthly_budget_usd: editBudget ? parseFloat(editBudget) : null,
         warn_pct: editWarn ? parseFloat(editWarn) : null,
         fallback_model: editFallback.trim() || null,
         custom_pricing: customPricing,
+        provider_keys: providerKeys,
       });
       setProject(updated);
       // Refresh usage (window budget changes)
@@ -160,6 +179,18 @@ export default function ProjectDetailPage() {
     navigator.clipboard.writeText(`Project #${id}`);
     setCopiedKeyId(id);
     setTimeout(() => setCopiedKeyId(null), 2000);
+  }
+
+  async function handleDelete() {
+    setDeleteLoading(true);
+    setDeleteError(null);
+    try {
+      await deleteProject(projectId);
+      router.push("/projects");
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "Delete failed");
+      setDeleteLoading(false);
+    }
   }
 
   if (loading) {
@@ -217,6 +248,14 @@ export default function ProjectDetailPage() {
             )}
             <Button variant="outline" size="sm" onClick={openEdit} className="ml-2">
               <Pencil className="mr-2 size-3.5" /> Edit
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => setShowDelete(true)}
+              className="ml-2"
+            >
+              <Trash2 className="mr-2 size-3.5" /> Delete
             </Button>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -362,6 +401,34 @@ export default function ProjectDetailPage() {
           </Card>
         )}
 
+        {/* Provider credentials */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Provider Credentials</CardTitle>
+            <CardDescription>
+              Per-project API keys used when proxying to a provider. Empty means the
+              server&apos;s global key is used. Manage them via Edit.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-[1fr_1fr] gap-2 text-xs font-medium text-muted-foreground">
+              <span>Provider</span>
+              <span>Status</span>
+            </div>
+            {(Object.keys(PROVIDER_LABELS) as string[]).map((key) => {
+              const set = project.provider_keys?.[key];
+              return (
+                <div key={key} className="grid grid-cols-[1fr_1fr] gap-2 border-t py-2 text-sm">
+                  <span>{PROVIDER_LABELS[key]}</span>
+                  <span className="font-mono text-xs">
+                    {set ? `set (${set})` : "not set"}
+                  </span>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+
         {/* API Keys */}
         <Card>
           <CardHeader>
@@ -456,6 +523,32 @@ export default function ProjectDetailPage() {
                 <Label>Fallback model (optional)</Label>
                 <Input placeholder="e.g. gpt-4o-mini" value={editFallback} onChange={(e) => setEditFallback(e.target.value)} />
               </div>
+              {/* Provider API keys */}
+              <div className="rounded-lg border p-3">
+                <p className="text-sm font-medium">Provider API keys</p>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Leave a field blank to keep its current value. Entering a new key replaces it.
+                </p>
+                <div className="flex flex-col gap-3">
+                  {(Object.keys(PROVIDER_LABELS) as string[]).map((key) => (
+                    <div key={key} className="flex flex-col gap-1">
+                      <Label className="text-xs">
+                        {PROVIDER_LABELS[key]}
+                        {project.provider_keys?.[key] ? " (currently set)" : ""}
+                      </Label>
+                      <Input
+                        type="password"
+                        autoComplete="off"
+                        placeholder={project.provider_keys?.[key] ? "enter new key to replace" : `add ${key} key`}
+                        value={editProviderKeys[key] ?? ""}
+                        onChange={(e) =>
+                          setEditProviderKeys((prev) => ({ ...prev, [key]: e.target.value }))
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
               {/* Per-project pricing */}
               <div className="rounded-lg border p-3">
                 <p className="text-sm font-medium">Custom pricing overrides</p>
@@ -490,6 +583,37 @@ export default function ProjectDetailPage() {
                 <Button type="submit" disabled={editLoading}>{editLoading ? "Saving..." : "Save"}</Button>
               </DialogFooter>
             </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete confirmation */}
+        <Dialog open={showDelete} onOpenChange={setShowDelete}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <AlertTriangle className="size-5 text-destructive" />
+                Delete project?
+              </DialogTitle>
+              <DialogDescription>
+                This permanently deletes <span className="font-medium">{project.name}</span>,
+                its API keys, and all usage history. This cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            {deleteLoading ? (
+              <p className="text-sm text-muted-foreground">Deleting...</p>
+            ) : (
+              <>
+                {deleteError && <p className="text-sm text-destructive">{deleteError}</p>}
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowDelete(false)}>
+                    Cancel
+                  </Button>
+                  <Button variant="destructive" onClick={handleDelete}>
+                    Delete project
+                  </Button>
+                </DialogFooter>
+              </>
+            )}
           </DialogContent>
         </Dialog>
       </AppShell>

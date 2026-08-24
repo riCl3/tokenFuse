@@ -47,6 +47,9 @@ class Project(Base):
     # Per-project pricing overrides: {"gpt-4o": {"input": 2.5, "output": 10.0}, ...}
     # If a model is absent here, the global ModelPricing table is used, then hardcoded fallback.
     custom_pricing: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
+    # Per-project provider credentials: {"openai": "sk-...", "groq": "..."}.
+    # Used for proxy calls; falls back to the global env key when a provider is absent.
+    provider_keys: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 

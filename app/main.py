@@ -28,6 +28,9 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE projects ADD COLUMN IF NOT EXISTS custom_pricing JSON"
         ))
         await conn.execute(text(
+            "ALTER TABLE projects ADD COLUMN IF NOT EXISTS provider_keys JSON"
+        ))
+        await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_projects_owner_id ON projects (owner_id)"
         ))
     print("[startup] database tables verified")

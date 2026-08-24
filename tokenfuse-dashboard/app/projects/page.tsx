@@ -8,15 +8,31 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AppShell } from "@/components/app-shell";
 import { CreateProjectDialog } from "@/components/create-project-dialog";
-import { listProjects } from "@/lib/api-client";
+import { listProjects, deleteProject } from "@/lib/api-client";
 import { formatCurrency, formatTokens, statusColor } from "@/lib/format";
 import type { ProjectDashboardRow } from "@/lib/api-types";
-import { Plus, ExternalLink } from "lucide-react";
+import {
+  Plus,
+  ExternalLink,
+  Trash2,
+  AlertTriangle,
+} from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<ProjectDashboardRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ProjectDashboardRow | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   async function fetchProjects() {
     try {
@@ -33,6 +49,21 @@ export default function ProjectsPage() {
   useEffect(() => {
     fetchProjects();
   }, []);
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleteLoading(true);
+    setDeleteError(null);
+    try {
+      await deleteProject(deleteTarget.id);
+      setProjects((prev) => prev.filter((p) => p.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setDeleteLoading(false);
+    }
+  }
 
   return (
     <AppShell>
@@ -109,9 +140,24 @@ export default function ProjectsPage() {
                         {project.total_requests}
                       </span>
                     </div>
-                    <div className="mt-2 flex items-center justify-end text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
-                      View details
-                      <ExternalLink className="ml-1 size-3" />
+                    <div className="mt-2 flex items-center justify-between">
+                      <span className="flex items-center text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                        View details
+                        <ExternalLink className="ml-1 size-3" />
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setDeleteTarget(project);
+                        }}
+                        aria-label={`Delete ${project.name}`}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -129,6 +175,31 @@ export default function ProjectsPage() {
           fetchProjects();
         }}
       />
+
+      <Dialog open={deleteTarget !== null} onOpenChange={(o) => { if (!o) setDeleteTarget(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="size-5 text-destructive" />
+              Delete project?
+            </DialogTitle>
+            <DialogDescription>
+              This permanently deletes{" "}
+              <span className="font-medium">{deleteTarget?.name}</span>, its API keys,
+              and all usage history. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteError && <p className="text-sm text-destructive">{deleteError}</p>}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete} disabled={deleteLoading}>
+              {deleteLoading ? "Deleting..." : "Delete project"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }

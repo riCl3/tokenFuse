@@ -65,18 +65,24 @@ async def chat_completions(
 
     body = payload.model_dump(exclude={"provider"})
 
+    # Resolve the provider key: per-project override, else global env key.
+    provider_keys = auth.project.provider_keys or {}
+    provider_api_key = provider_keys.get(payload.provider)
+
     if body.get("stream"):
         # Ask the provider to append a final chunk carrying the cumulative
         # usage totals (OpenAI-compatible providers honor stream_options).
         body["stream_options"] = {"include_usage": True}
         return StreamingResponse(
-            _stream_proxy(body, payload.provider, auth),
+            _stream_proxy(body, payload.provider, auth, provider_api_key),
             media_type="text/event-stream",
             headers=response_headers,
         )
 
     try:
-        result = await provider_client.forward_chat_completion(body, payload.provider)
+        result = await provider_client.forward_chat_completion(
+            body, payload.provider, provider_api_key
+        )
     except httpx.HTTPStatusError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -164,6 +170,7 @@ async def _tap_stream(
     body: dict,
     provider: str,
     auth: AuthContext,
+    provider_api_key: str | None,
     queue: asyncio.Queue[bytes | None],
 ) -> None:
     """Own the upstream stream: push every chunk into the queue, then commit usage.
@@ -176,7 +183,7 @@ async def _tap_stream(
     usage = None
     buffer = b""
     try:
-        async for chunk in provider_client.stream_chat_completion(body, provider):
+        async for chunk in provider_client.stream_chat_completion(body, provider, provider_api_key):
             await queue.put(chunk)
             buffer += chunk
             while b"\n" in buffer:
@@ -221,7 +228,7 @@ async def _tap_stream(
 
 
 async def _stream_proxy(
-    body: dict, provider: str, auth: AuthContext
+    body: dict, provider: str, auth: AuthContext, provider_api_key: str | None
 ) -> AsyncGenerator[bytes, None]:
     """Forward streamed chunks immediately; a background tap commits usage.
 
@@ -233,7 +240,7 @@ async def _stream_proxy(
     the upstream read too, discarding the usage chunk - a budget loophole.
     """
     queue: asyncio.Queue[bytes | None] = asyncio.Queue()
-    tap = asyncio.create_task(_tap_stream(body, provider, auth, queue))
+    tap = asyncio.create_task(_tap_stream(body, provider, auth, provider_api_key, queue))
     _track(tap)
     try:
         while True:

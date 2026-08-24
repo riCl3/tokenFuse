@@ -5,9 +5,23 @@ from sqlalchemy.orm import selectinload
 from app.core.config import get_settings
 from app.core.security import generate_api_key, hash_api_key
 from app.db.models import ApiKey, Project
-from app.schemas.project import ProjectCreate
+from app.schemas.project import ALLOWED_PROVIDERS, ProjectCreate
 
 settings = get_settings()
+
+
+def _normalize_provider_keys(raw: dict[str, str] | None) -> dict | None:
+    if raw is None:
+        return None
+    cleaned = {}
+    for k, v in raw.items():
+        if k not in ALLOWED_PROVIDERS:
+            continue
+        # Empty string clears a previously set key.
+        if v is None or v == "":
+            continue
+        cleaned[k] = v
+    return cleaned or None
 
 
 async def create_project(
@@ -17,6 +31,7 @@ async def create_project(
     custom = getattr(data, "custom_pricing", None)
     if custom is not None and len(custom) == 0:
         custom = None
+    provider_keys = _normalize_provider_keys(getattr(data, "provider_keys", None))
     project = Project(
         name=data.name,
         owner_id=owner_id,
@@ -30,6 +45,7 @@ async def create_project(
         ),
         fallback_model=data.fallback_model,
         custom_pricing=custom,
+        provider_keys=provider_keys,
     )
     session.add(project)
 
@@ -80,6 +96,17 @@ async def update_project(session: AsyncSession, project: Project, data) -> Proje
             project.custom_pricing = None
         else:
             project.custom_pricing = data.custom_pricing
+    if data.provider_keys is not None:
+        # Merge: keep existing providers not mentioned; blank value clears one.
+        merged = dict(project.provider_keys or {})
+        for provider, value in data.provider_keys.items():
+            if provider not in ALLOWED_PROVIDERS:
+                continue
+            if value is None or value == "":
+                merged.pop(provider, None)
+            else:
+                merged[provider] = value
+        project.provider_keys = merged or None
     await session.commit()
     await session.refresh(project)
     # Re-load with api_keys for response

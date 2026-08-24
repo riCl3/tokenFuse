@@ -15,6 +15,7 @@ export interface ProjectResponse {
   warn_pct: number;
   fallback_model: string | null;
   custom_pricing: Record<string, { input: number; output: number }> | null;
+  provider_keys: Record<string, string | null> | null;
   is_active: boolean;
   created_at: string;
   api_keys: ApiKeySummary[];
@@ -31,6 +32,7 @@ export interface ProjectCreate {
   warn_pct?: number | null;
   fallback_model?: string | null;
   custom_pricing?: Record<string, { input: number; output: number }> | null;
+  provider_keys?: Record<string, string> | null;
 }
 
 export interface ProjectUpdate {
@@ -39,6 +41,7 @@ export interface ProjectUpdate {
   warn_pct?: number | null;
   fallback_model?: string | null;
   custom_pricing?: Record<string, { input: number; output: number }> | null;
+  provider_keys?: Record<string, string> | null;
   is_active?: boolean | null;
 }
 

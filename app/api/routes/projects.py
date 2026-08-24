@@ -90,3 +90,27 @@ async def update_project(
 
     updated = await project_service.update_project(db, project, payload)
     return updated
+
+
+@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_project(
+    project_id: int,
+    auth_tuple: tuple = Depends(get_current_user_or_project),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    user, auth_ctx = auth_tuple
+    project = (
+        await db.execute(
+            select(Project).where(Project.id == project_id).options(selectinload(Project.api_keys))
+        )
+    ).scalar_one_or_none()
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if user is not None:
+        if project.owner_id != user.id:
+            raise HTTPException(status_code=403, detail="Not authorized for this project")
+    elif auth_ctx is not None:
+        if auth_ctx.project.id != project_id:
+            raise HTTPException(status_code=403, detail="Not authorized for this project")
+    await db.delete(project)
+    await db.commit()

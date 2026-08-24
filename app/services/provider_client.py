@@ -30,15 +30,19 @@ class CompletionResult:
     usage: TokenUsage | None
 
 
-async def forward_chat_completion(payload: dict, provider: str) -> CompletionResult:
+async def forward_chat_completion(
+    payload: dict, provider: str, api_key: str | None = None
+) -> CompletionResult:
     if provider not in _PROVIDERS:
         raise ValueError(f"Unknown provider: {provider}")
-    base_url, api_key = _PROVIDERS[provider]
+    base_url, global_key = _PROVIDERS[provider]
+    # Per-project key takes priority; fall back to the global env key.
+    resolved_key = api_key or global_key
 
     response = await client.post(
         f"{base_url}/chat/completions",
         json=payload,
-        headers={"Authorization": f"Bearer {api_key}"} if api_key else None,
+        headers={"Authorization": f"Bearer {resolved_key}"} if resolved_key else None,
     )
     response.raise_for_status()
 
@@ -55,7 +59,7 @@ async def forward_chat_completion(payload: dict, provider: str) -> CompletionRes
 
 
 async def stream_chat_completion(
-    payload: dict, provider: str
+    payload: dict, provider: str, api_key: str | None = None
 ) -> AsyncIterator[bytes]:
     """Forward a chat completion and yield the raw SSE bytes as they arrive.
 
@@ -65,13 +69,14 @@ async def stream_chat_completion(
     """
     if provider not in _PROVIDERS:
         raise ValueError(f"Unknown provider: {provider}")
-    base_url, api_key = _PROVIDERS[provider]
+    base_url, global_key = _PROVIDERS[provider]
+    resolved_key = api_key or global_key
 
     async with client.stream(
         "POST",
         f"{base_url}/chat/completions",
         json=payload,
-        headers={"Authorization": f"Bearer {api_key}"} if api_key else None,
+        headers={"Authorization": f"Bearer {resolved_key}"} if resolved_key else None,
     ) as response:
         response.raise_for_status()
         async for chunk in response.aiter_bytes():

@@ -23,6 +23,21 @@ import { Separator } from "@/components/ui/separator";
 import { createProject, setApiKey } from "@/lib/api-client";
 import { Trash2, Plus } from "lucide-react";
 
+const PROVIDER_LABELS: Record<string, string> = {
+  openai: "OpenAI",
+  openrouter: "OpenRouter",
+  grok: "Grok (xAI)",
+  groq: "Groq",
+};
+
+function buildProviderKeys(state: Record<string, string>): Record<string, string> | undefined {
+  const cleaned: Record<string, string> = {};
+  for (const [k, v] of Object.entries(state)) {
+    if (v && v.trim()) cleaned[k] = v.trim();
+  }
+  return Object.keys(cleaned).length > 0 ? cleaned : undefined;
+}
+
 interface CreateProjectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -42,6 +57,12 @@ export function CreateProjectDialog({
   const [overrides, setOverrides] = useState<
     { model: string; input: string; output: string }[]
   >([]);
+  const [providerKeys, setProviderKeys] = useState<Record<string, string>>({
+    openai: "",
+    openrouter: "",
+    grok: "",
+    groq: "",
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
@@ -52,6 +73,7 @@ export function CreateProjectDialog({
     setWarnPct("0.8");
     setFallbackModel("");
     setOverrides([]);
+    setProviderKeys({ openai: "", openrouter: "", grok: "", groq: "" });
     setShowAdvanced(false);
   }
 
@@ -85,6 +107,7 @@ export function CreateProjectDialog({
         warn_pct: warnPct ? parseFloat(warnPct) : undefined,
         fallback_model: fallbackModel.trim() || undefined,
         custom_pricing: customPricing,
+        provider_keys: buildProviderKeys(providerKeys),
       });
       // Store the API key from the first project
       if (result.api_key) {
@@ -279,6 +302,36 @@ export function CreateProjectDialog({
                     </Button>
                   </div>
                 )}
+              </div>
+
+              {/* Provider API keys */}
+              <div className="rounded-lg border p-3">
+                <div className="flex w-full items-center justify-between text-sm font-medium">
+                  <span>Provider API keys</span>
+                  <span className="text-xs text-muted-foreground">
+                    {Object.values(providerKeys).filter((v) => v).length} set
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Per-project credentials used when proxying to a provider. If empty, the
+                  server&apos;s global key is used. Keys are masked after saving.
+                </p>
+                <div className="mt-3 grid grid-cols-1 gap-3">
+                  {(Object.keys(PROVIDER_LABELS) as string[]).map((key) => (
+                    <div key={key} className="flex flex-col gap-1">
+                      <Label className="text-xs">{PROVIDER_LABELS[key]}</Label>
+                      <Input
+                        type="password"
+                        autoComplete="off"
+                        placeholder={`${key} API key`}
+                        value={providerKeys[key] ?? ""}
+                        onChange={(e) =>
+                          setProviderKeys((prev) => ({ ...prev, [key]: e.target.value }))
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
 
               {error && <p className="text-sm text-destructive">{error}</p>}

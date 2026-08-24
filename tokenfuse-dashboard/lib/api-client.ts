@@ -153,3 +153,7 @@ export async function deletePricing(model: string): Promise<void> {
 export async function updateProject(id: number, data: import("./api-types").ProjectUpdate): Promise<import("./api-types").ProjectResponse> {
   return request(`/v1/projects/${id}`, { method: "PATCH", body: JSON.stringify(data) });
 }
+
+export async function deleteProject(id: number): Promise<void> {
+  await request(`/v1/projects/${id}`, { method: "DELETE" });
+}
