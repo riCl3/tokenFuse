@@ -15,6 +15,12 @@ async def lifespan(app: FastAPI):
     print(f"[startup] {settings.app_name} booting in {settings.environment} mode")
     print(f"[startup] provider openai -> {settings.openai_base_url}")
 
+    # Auto-migrate: ensure all tables exist (safe for new tables, won't drop)
+    from app.db.base import Base, engine
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    print("[startup] database tables verified")
+
     scheduler = alert_service.create_scheduler()
     scheduler.start()
     print(
