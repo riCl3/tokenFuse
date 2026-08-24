@@ -8,6 +8,8 @@ alembic
 redis
 httpx
 apscheduler
+bcrypt
+pyjwt
 pytest
 pytest-asyncio
 respx

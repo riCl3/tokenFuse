@@ -11,7 +11,7 @@ settings = get_settings()
 
 
 async def create_project(
-    session: AsyncSession, data: ProjectCreate
+    session: AsyncSession, data: ProjectCreate, owner_id: int | None = None
 ) -> tuple[Project, str]:
     # Validate custom_pricing if provided
     custom = getattr(data, "custom_pricing", None)
@@ -19,6 +19,7 @@ async def create_project(
         custom = None
     project = Project(
         name=data.name,
+        owner_id=owner_id,
         monthly_budget_usd=(
             data.monthly_budget_usd
             if data.monthly_budget_usd is not None

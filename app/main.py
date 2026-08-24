@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import dashboard, pricing, projects, proxy
+from app.api.routes import auth, dashboard, pricing, projects, proxy
 from app.core.config import get_settings
 from app.services import alert_service, provider_client
 
@@ -48,6 +48,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
 app.include_router(projects.router)
 app.include_router(pricing.router)
 app.include_router(proxy.router)

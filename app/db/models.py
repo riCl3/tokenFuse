@@ -16,10 +16,28 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(128))
+    display_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    projects: Mapped[list[Project]] = relationship(
+        back_populates="owner", cascade="all, delete-orphan"
+    )
+
+
 class Project(Base):
     __tablename__ = "projects"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    owner_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     name: Mapped[str] = mapped_column(String(120))
     monthly_budget_usd: Mapped[Decimal] = mapped_column(
         Numeric(12, 2), default=settings.default_monthly_budget_usd
@@ -32,6 +50,7 @@ class Project(Base):
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
+    owner: Mapped[User | None] = relationship(back_populates="projects")
     api_keys: Mapped[list[ApiKey]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )

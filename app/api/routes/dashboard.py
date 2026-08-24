@@ -13,10 +13,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AuthContext, get_current_project
+from app.api.deps import AuthContext, get_current_project, get_current_user_dep
 from app.core.config import get_settings
 from app.db.deps import get_db
-from app.db.models import Project, UsageEvent
+from app.db.models import Project, UsageEvent, User
 from app.schemas.dashboard import (
     ModelUsageRow,
     ProjectDashboardRow,
@@ -31,11 +31,15 @@ router = APIRouter(tags=["dashboard"])
 
 @router.get("/v1/projects", response_model=list[ProjectDashboardRow])
 async def list_projects(
-    auth: AuthContext = Depends(get_current_project),
+    user: User = Depends(get_current_user_dep),
     db: AsyncSession = Depends(get_db),
 ) -> list[ProjectDashboardRow]:
     projects = (
-        await db.execute(select(Project).order_by(Project.created_at.desc()))
+        await db.execute(
+            select(Project)
+            .where(Project.owner_id == user.id)
+            .order_by(Project.created_at.desc())
+        )
     ).scalars().all()
 
     # One grouped query covers every project's totals (avoids an N+1 SELECT).

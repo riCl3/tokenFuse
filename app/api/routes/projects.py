@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AuthContext, get_current_project
+from app.api.deps import AuthContext, get_current_project, get_current_user_dep
 from app.db.deps import get_db
+from app.db.models import User
 from app.schemas.pricing import ProjectUpdate
 from app.schemas.project import (
     ProjectCreate,
@@ -21,9 +22,10 @@ router = APIRouter(prefix="/v1/projects", tags=["projects"])
 )
 async def create_project(
     payload: ProjectCreate,
+    user: User = Depends(get_current_user_dep),
     db: AsyncSession = Depends(get_db),
 ) -> ProjectCreatedResponse:
-    project, raw_key = await project_service.create_project(db, payload)
+    project, raw_key = await project_service.create_project(db, payload, owner_id=user.id)
     return ProjectCreatedResponse(
         project=ProjectResponse.model_validate(project),
         api_key=raw_key,

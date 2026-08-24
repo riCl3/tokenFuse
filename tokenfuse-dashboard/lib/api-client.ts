@@ -8,7 +8,25 @@ import type {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-// Simple token storage — in production, use a proper auth flow
+// --- Auth token (JWT) ---
+export function getAuthToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("tokenfuse_auth_token");
+}
+
+export function setAuthToken(token: string) {
+  if (typeof window !== "undefined") {
+    localStorage.setItem("tokenfuse_auth_token", token);
+  }
+}
+
+export function clearAuthToken() {
+  if (typeof window !== "undefined") {
+    localStorage.removeItem("tokenfuse_auth_token");
+  }
+}
+
+// --- Project API key (tfsk_) — legacy, kept for proxy usage ---
 export function getApiKey(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("tokenfuse_api_key");
@@ -31,10 +49,11 @@ async function request<T>(
   options: RequestInit & { skipAuth?: boolean } = {},
 ): Promise<T> {
   const { skipAuth, ...fetchOptions } = options;
-  const apiKey = skipAuth ? null : getApiKey();
+  // Prefer JWT auth token over API key
+  const token = skipAuth ? null : getAuthToken();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(fetchOptions.headers as Record<string, string> ?? {}),
   };
 
@@ -49,6 +68,28 @@ async function request<T>(
   }
 
   return res.json() as Promise<T>;
+}
+
+// --- Auth ---
+
+export async function signup(email: string, password: string, displayName?: string): Promise<{ access_token: string }> {
+  return request("/v1/auth/signup", {
+    method: "POST",
+    body: JSON.stringify({ email, password, display_name: displayName }),
+    skipAuth: true,
+  } as RequestInit & { skipAuth?: boolean });
+}
+
+export async function login(email: string, password: string): Promise<{ access_token: string }> {
+  return request("/v1/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+    skipAuth: true,
+  } as RequestInit & { skipAuth?: boolean });
+}
+
+export async function getMe(): Promise<{ id: number; email: string; display_name: string | null; is_active: boolean }> {
+  return request("/v1/auth/me");
 }
 
 // --- Projects ---
@@ -103,9 +144,9 @@ export async function updatePricing(model: string, data: import("./api-types").P
 }
 
 export async function deletePricing(model: string): Promise<void> {
-  const apiKey = getApiKey();
+  const token = getAuthToken();
   const headers: Record<string, string> = {
-    ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
   const res = await fetch(`${API_BASE}/v1/pricing/${encodeURIComponent(model)}`, { method: "DELETE", headers });
   if (!res.ok) {

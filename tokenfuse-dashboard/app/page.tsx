@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Card,
   CardContent,
@@ -15,13 +16,8 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AppShell } from "@/components/app-shell";
 import { CreateProjectDialog } from "@/components/create-project-dialog";
-import {
-  listProjects,
-  getApiKey,
-  setApiKey,
-  clearApiKey,
-  checkHealth,
-} from "@/lib/api-client";
+import { listProjects, checkHealth } from "@/lib/api-client";
+import { useAuth } from "@/lib/auth-context";
 import {
   formatCurrency,
   formatNumber,
@@ -37,27 +33,32 @@ import {
   Activity,
   AlertTriangle,
   ExternalLink,
+  LogOut,
+  User,
 } from "lucide-react";
 
 export default function DashboardPage() {
+  const { user, loading: authLoading, logout } = useAuth();
+  const router = useRouter();
   const [projects, setProjects] = useState<ProjectDashboardRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState("");
-  const [connected, setConnected] = useState(false);
 
-  // Check if we have an API key stored
+  // Redirect to login if not authenticated
   useEffect(() => {
-    const stored = getApiKey();
-    if (stored) {
-      setApiKeyInput(stored);
+    if (!authLoading && !user) {
+      router.push("/auth/login");
+    }
+  }, [authLoading, user, router]);
+
+  // Fetch projects once authenticated
+  useEffect(() => {
+    if (user) {
       fetchProjects();
-    } else {
-      setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [user]);
 
   async function fetchProjects() {
     try {
@@ -65,15 +66,11 @@ export default function DashboardPage() {
       setError(null);
       const data = await listProjects();
       setProjects(data);
-      setConnected(true);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to fetch projects";
-      // 401 means the stored key is invalid/expired — clear it so the user
-      // isn't stuck in a loop and show a helpful message.
       if (msg.includes("401")) {
-        clearApiKey();
-        setConnected(false);
-        setError("Invalid API key. Please create a project or enter a valid key.");
+        logout();
+        router.push("/auth/login");
       } else {
         setError(msg);
       }
@@ -82,78 +79,13 @@ export default function DashboardPage() {
     }
   }
 
-  function handleConnect() {
-    if (!apiKeyInput.trim()) return;
-    setApiKey(apiKeyInput.trim());
-    fetchProjects();
-  }
-
-  // Connection screen
-  if (!connected && !loading) {
+  // Show loading while checking auth
+  if (authLoading || !user) {
     return (
       <AppShell>
         <div className="flex min-h-[80vh] items-center justify-center">
-          <Card className="w-full max-w-md">
-            <CardHeader className="text-center">
-              <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10">
-                <Zap className="size-6 text-primary" />
-              </div>
-              <CardTitle className="text-2xl">Welcome to TokenFuse</CardTitle>
-              <CardDescription>
-                Connect to your TokenFuse instance to manage projects and monitor
-                usage.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-2">
-                  <label className="text-sm font-medium">API Key</label>
-                  <input
-                    type="password"
-                    placeholder="tfsk_..."
-                    value={apiKeyInput}
-                    onChange={(e) => setApiKeyInput(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handleConnect()}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  />
-                </div>
-                <Button onClick={handleConnect} className="w-full">
-                  Connect
-                </Button>
-                {error && (
-                  <p className="text-sm text-destructive text-center">{error}</p>
-                )}
-                <div className="relative py-1">
-                  <div className="absolute inset-0 flex items-center">
-                    <span className="w-full border-t" />
-                  </div>
-                  <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-card px-2 text-muted-foreground">Or</span>
-                  </div>
-                </div>
-                <Button variant="outline" className="w-full" onClick={() => setShowCreateDialog(true)}>
-                  <Plus className="mr-2 size-4" />
-                  Create your first project
-                </Button>
-                <p className="text-center text-xs text-muted-foreground">
-                  No key yet? Create a project — your API key will be shown once.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+          <Skeleton className="h-8 w-48" />
         </div>
-        <CreateProjectDialog
-          open={showCreateDialog}
-          onOpenChange={setShowCreateDialog}
-          onCreated={() => {
-            setShowCreateDialog(false);
-            const stored = getApiKey();
-            if (stored) {
-              setApiKeyInput(stored);
-              fetchProjects();
-            }
-          }}
-        />
       </AppShell>
     );
   }
@@ -177,10 +109,18 @@ export default function DashboardPage() {
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
             <p className="text-muted-foreground">
-              Monitor your LLM usage across all projects.
+              Welcome back, {user.display_name || user.email}.
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground mr-2">
+              <User className="size-4" />
+              {user.email}
+            </div>
+            <Button variant="outline" size="sm" onClick={logout}>
+              <LogOut className="mr-2 size-4" />
+              Sign out
+            </Button>
             <Button variant="outline" onClick={fetchProjects} disabled={loading}>
               <Activity className="mr-2 size-4" />
               Refresh

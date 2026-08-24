@@ -71,13 +71,36 @@ async def db() -> AsyncSession:
 
 
 @pytest.fixture
-async def create_project(client):
-    """Create a project via the real API (unauthenticated bootstrap) and
+async def auth_token(client):
+    """Login as test user and return the JWT token. Creates user on first call."""
+    # Try login first; if it fails, create the user then login.
+    resp = await client.post(
+        "/v1/auth/login",
+        json={"email": "test@test.com", "password": "testpass123"},
+    )
+    if resp.status_code != 200:
+        await client.post(
+            "/v1/auth/signup",
+            json={"email": "test@test.com", "password": "testpass123"},
+        )
+        resp = await client.post(
+            "/v1/auth/login",
+            json={"email": "test@test.com", "password": "testpass123"},
+        )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["access_token"]
+
+
+@pytest.fixture
+async def create_project(client, auth_token):
+    """Create a project via the real API (requires JWT) and
     return (project_id, raw_api_key)."""
 
     async def _create(name: str = "test", monthly: float = 70.0):
         resp = await client.post(
-            "/v1/projects", json={"name": name, "monthly_budget_usd": monthly}
+            "/v1/projects",
+            json={"name": name, "monthly_budget_usd": monthly},
+            headers={"Authorization": f"Bearer {auth_token}"},
         )
         assert resp.status_code == 201, resp.text
         data = resp.json()

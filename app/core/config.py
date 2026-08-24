@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     # CORS — comma-separated origins. Supports https://*.vercel.app via allow_origin_regex.
     cors_origins: str = "http://localhost:3000,http://localhost:3001"
     # Auth — JWT for dashboard personalization (localStorage for MVP)
-    jwt_secret: str = "dev-jwt-secret-change-in-prod"
+    jwt_secret: str = "dev-jwt-secret-change-in-prod-at-least-32-bytes!!"
     jwt_algorithm: str = "HS256"
     jwt_expires_minutes: int = 60 * 24
 
