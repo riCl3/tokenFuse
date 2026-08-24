@@ -15,10 +15,18 @@ async def lifespan(app: FastAPI):
     print(f"[startup] {settings.app_name} booting in {settings.environment} mode")
     print(f"[startup] provider openai -> {settings.openai_base_url}")
 
-    # Auto-migrate: ensure all tables exist (safe for new tables, won't drop)
+    # Auto-migrate: ensure all tables exist and add missing columns
     from app.db.base import Base, engine
+    from sqlalchemy import text
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Add owner_id to projects if missing (safe for existing DBs)
+        await conn.execute(text(
+            "ALTER TABLE projects ADD COLUMN IF NOT EXISTS owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_projects_owner_id ON projects (owner_id)"
+        ))
     print("[startup] database tables verified")
 
     scheduler = alert_service.create_scheduler()
